@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase.js";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -21,6 +21,16 @@ const formatDate = (d) => {
   return new Date(d).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
 };
 
+// Upload a file to Supabase Storage and return the public URL
+const uploadPhoto = async (file, folder = "general") => {
+  const ext = file.name.split(".").pop();
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error } = await supabase.storage.from("photos").upload(path, file, { upsert: false });
+  if (error) throw error;
+  const { data } = supabase.storage.from("photos").getPublicUrl(path);
+  return data.publicUrl;
+};
+
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 const Icon = ({ name, size = 18, color = "currentColor" }) => {
   const icons = {
@@ -34,6 +44,7 @@ const Icon = ({ name, size = 18, color = "currentColor" }) => {
     edit: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
     trash: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>,
     photo: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+    upload: <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>,
   };
   return <span style={{ color, display: "inline-flex", alignItems: "center" }}>{icons[name]}</span>;
 };
@@ -65,6 +76,65 @@ const StarRating = ({ value, onChange, label }) => {
         ))}
         <span style={{ marginLeft: 8, fontSize: 18, fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, color: "#3D2B1F" }}>{value || "—"}</span>
       </div>
+    </div>
+  );
+};
+
+// ─── PHOTO UPLOADER ───────────────────────────────────────────────────────────
+const PhotoUploader = ({ label, onUpload, preview, onRemove, multiple = false, uploadedUrls = [], onRemoveUrl }) => {
+  const inputRef = useRef();
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const url = await uploadPhoto(file, "restaurants");
+        onUpload(url);
+      }
+    } catch (err) {
+      alert("Errore caricamento: " + err.message);
+    }
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, color: "#8B7355", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, fontFamily: "sans-serif" }}>{label}</div>
+
+      {/* Single preview (cover) */}
+      {preview && (
+        <div style={{ position: "relative", marginBottom: 10, borderRadius: 10, overflow: "hidden", height: 140 }}>
+          <img src={preview} alt="cover" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <button onClick={onRemove} style={{ position: "absolute", top: 8, right: 8, background: "rgba(30,18,10,0.7)", border: "none", borderRadius: 6, width: 28, height: 28, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon name="close" size={14} color="#FAF7F2" />
+          </button>
+        </div>
+      )}
+
+      {/* Multiple previews (review photos) */}
+      {uploadedUrls.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {uploadedUrls.map((url, i) => (
+            <div key={i} style={{ position: "relative", width: 80, height: 80, borderRadius: 8, overflow: "hidden" }}>
+              <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              <button onClick={() => onRemoveUrl(i)} style={{ position: "absolute", top: 4, right: 4, background: "rgba(30,18,10,0.7)", border: "none", borderRadius: 4, width: 22, height: 22, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon name="close" size={11} color="#FAF7F2" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button onClick={() => inputRef.current.click()} disabled={uploading}
+        style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", border: "1.5px dashed #C8956C", borderRadius: 10, background: "transparent", cursor: uploading ? "not-allowed" : "pointer", color: "#C8956C", fontFamily: "Georgia, serif", fontSize: 13, width: "100%", justifyContent: "center" }}>
+        <Icon name="upload" size={15} color="#C8956C" />
+        {uploading ? "Caricamento..." : `Carica ${multiple ? "foto" : "foto di copertina"}`}
+      </button>
+      <input ref={inputRef} type="file" accept="image/*" multiple={multiple} onChange={handleFile} style={{ display: "none" }} />
     </div>
   );
 };
@@ -149,7 +219,7 @@ const AddRestaurantModal = ({ onClose, onAdd, currentUser }) => {
       location: location || city,
       price_range: priceRange,
       date_visit: dateVisit,
-      cover_photo: coverUrl || "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80",
+      cover_photo: coverUrl || null,
       photos: [],
       added_by: currentUser.id,
     }).select().single();
@@ -160,13 +230,21 @@ const AddRestaurantModal = ({ onClose, onAdd, currentUser }) => {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(30,18,10,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, overflowY: "auto" }}>
-      <div style={{ background: "#FAF7F2", borderRadius: 20, padding: "36px 32px", width: "100%", maxWidth: 460, position: "relative" }}>
+      <div style={{ background: "#FAF7F2", borderRadius: 20, padding: "36px 32px", width: "100%", maxWidth: 460, position: "relative", marginTop: "auto", marginBottom: "auto" }}>
         <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", cursor: "pointer", color: "#8B7355" }}><Icon name="close" size={20} /></button>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 700, color: "#3D2B1F", marginBottom: 24 }}>Aggiungi ristorante</div>
         <input placeholder="Nome ristorante *" value={name} onChange={e => setName(e.target.value)} style={inputStyle} />
         <input placeholder="Città *" value={city} onChange={e => setCity(e.target.value)} style={inputStyle} />
         <input placeholder="Indirizzo / quartiere" value={location} onChange={e => setLocation(e.target.value)} style={inputStyle} />
-        <input placeholder="URL foto di copertina (opzionale)" value={coverUrl} onChange={e => setCoverUrl(e.target.value)} style={inputStyle} />
+
+        {/* Photo uploader invece di URL */}
+        <PhotoUploader
+          label="Foto di copertina (opzionale)"
+          onUpload={(url) => setCoverUrl(url)}
+          preview={coverUrl}
+          onRemove={() => setCoverUrl("")}
+        />
+
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: "#8B7355", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, fontFamily: "sans-serif" }}>Fascia di prezzo</div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -195,6 +273,7 @@ const ReviewModal = ({ restaurant, existingReview, onClose, onSave, currentUser 
   const [atmosfera, setAtmosfera] = useState(existingReview?.atmosfera || 0);
   const [qualitaPrezzo, setQualitaPrezzo] = useState(existingReview?.qualita_prezzo || 0);
   const [comment, setComment] = useState(existingReview?.comment || "");
+  const [photos, setPhotos] = useState(existingReview?.photos || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -211,6 +290,7 @@ const ReviewModal = ({ restaurant, existingReview, onClose, onSave, currentUser 
       cibo, servizio, atmosfera,
       qualita_prezzo: qualitaPrezzo,
       comment,
+      photos,
     };
     let data, err;
     if (existingReview) {
@@ -225,7 +305,7 @@ const ReviewModal = ({ restaurant, existingReview, onClose, onSave, currentUser 
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(30,18,10,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, overflowY: "auto" }}>
-      <div style={{ background: "#FAF7F2", borderRadius: 20, padding: "36px 32px", width: "100%", maxWidth: 480, position: "relative" }}>
+      <div style={{ background: "#FAF7F2", borderRadius: 20, padding: "36px 32px", width: "100%", maxWidth: 480, position: "relative", marginTop: "auto", marginBottom: "auto" }}>
         <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", cursor: "pointer", color: "#8B7355" }}><Icon name="close" size={20} /></button>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 13, color: "#C8956C", textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>{existingReview ? "Modifica recensione" : "La tua recensione"}</div>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, fontWeight: 700, color: "#3D2B1F", marginBottom: 24 }}>{restaurant.name}</div>
@@ -241,6 +321,16 @@ const ReviewModal = ({ restaurant, existingReview, onClose, onSave, currentUser 
         )}
         <textarea placeholder="Racconta la tua esperienza..." value={comment} onChange={e => setComment(e.target.value)} rows={4}
           style={{ width: "100%", padding: "12px 14px", border: "1.5px solid #DDD4C5", borderRadius: 10, fontFamily: "Georgia, serif", fontSize: 14, background: "#FFFDF9", resize: "vertical", boxSizing: "border-box", outline: "none", color: "#3D2B1F", marginBottom: 16 }} />
+
+        {/* Foto recensione */}
+        <PhotoUploader
+          label="Foto piatti (opzionale)"
+          multiple={true}
+          uploadedUrls={photos}
+          onUpload={(url) => setPhotos(prev => [...prev, url])}
+          onRemoveUrl={(i) => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
+        />
+
         {error && <div style={{ color: "#C0392B", fontSize: 13, marginBottom: 14, fontFamily: "Georgia, serif" }}>{error}</div>}
         <button onClick={handleSave} disabled={loading} style={{ width: "100%", padding: "14px", background: loading ? "#8B7355" : "#3D2B1F", color: "#FAF7F2", border: "none", borderRadius: 10, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Cormorant Garamond', serif", fontSize: 16, fontWeight: 700 }}>
           {loading ? "Salvataggio..." : existingReview ? "Aggiorna" : "Pubblica recensione"}
@@ -251,15 +341,18 @@ const ReviewModal = ({ restaurant, existingReview, onClose, onSave, currentUser 
 };
 
 // ─── RESTAURANT DETAIL ────────────────────────────────────────────────────────
-const RestaurantDetail = ({ restaurant, currentUser, favourites, onToggleFavourite, onSaveReview, onDeleteReview, onBack }) => {
+const RestaurantDetail = ({ restaurant, currentUser, favourites, onToggleFavourite, onSaveReview, onDeleteReview, onDeleteRestaurant, onBack }) => {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [editingReview, setEditingReview] = useState(null);
   const [activePhoto, setActivePhoto] = useState(0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const allPhotos = [restaurant.cover_photo, ...(restaurant.photos || [])].filter(Boolean);
   const myReview = currentUser ? restaurant.reviews?.find(r => r.user_id === currentUser.id) : null;
   const globalAvg = avg(restaurant.reviews || []);
   const isFav = favourites.includes(restaurant.id);
+  const isOwner = currentUser && restaurant.added_by === currentUser.id;
+  const hasReviews = (restaurant.reviews || []).length > 0;
 
   return (
     <div style={{ minHeight: "100vh", background: "#FAF7F2" }}>
@@ -269,11 +362,19 @@ const RestaurantDetail = ({ restaurant, currentUser, favourites, onToggleFavouri
         <button onClick={onBack} style={{ position: "absolute", top: 20, left: 20, background: "rgba(250,247,242,0.9)", border: "none", borderRadius: 10, width: 40, height: 40, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Icon name="back" size={18} color="#3D2B1F" />
         </button>
-        {currentUser && (
-          <button onClick={() => onToggleFavourite(restaurant.id)} style={{ position: "absolute", top: 20, right: 20, background: "rgba(250,247,242,0.9)", border: "none", borderRadius: 10, width: 40, height: 40, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name={isFav ? "heart" : "heartOutline"} size={20} color={isFav ? "#C0392B" : "#3D2B1F"} />
-          </button>
-        )}
+        <div style={{ position: "absolute", top: 20, right: 20, display: "flex", gap: 8 }}>
+          {currentUser && (
+            <button onClick={() => onToggleFavourite(restaurant.id)} style={{ background: "rgba(250,247,242,0.9)", border: "none", borderRadius: 10, width: 40, height: 40, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name={isFav ? "heart" : "heartOutline"} size={20} color={isFav ? "#C0392B" : "#3D2B1F"} />
+            </button>
+          )}
+          {/* Bottone elimina ristorante — solo owner, solo se senza recensioni */}
+          {isOwner && !hasReviews && (
+            <button onClick={() => setConfirmDelete(true)} style={{ background: "rgba(250,247,242,0.9)", border: "none", borderRadius: 10, width: 40, height: 40, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon name="trash" size={18} color="#C0392B" />
+            </button>
+          )}
+        </div>
         <div style={{ position: "absolute", bottom: 20, left: 20, right: 20 }}>
           <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 13, color: "rgba(250,247,242,0.8)", textTransform: "uppercase", letterSpacing: 2, marginBottom: 4 }}>{restaurant.price_range} · {restaurant.city}</div>
           <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 34, fontWeight: 700, color: "#FAF7F2", lineHeight: 1.1 }}>{restaurant.name}</div>
@@ -334,6 +435,7 @@ const RestaurantDetail = ({ restaurant, currentUser, favourites, onToggleFavouri
         {(restaurant.reviews || []).map(review => {
           const reviewAvg = ((review.cibo + review.servizio + review.atmosfera + review.qualita_prezzo) / 4).toFixed(1);
           const isMyReview = currentUser && review.user_id === currentUser.id;
+          const reviewPhotos = review.photos || [];
           return (
             <div key={review.id} style={{ background: "#FFFDF9", borderRadius: 16, padding: 20, marginBottom: 14, border: `1.5px solid ${isMyReview ? "#C8956C" : "#EDE5D8"}` }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -360,11 +462,32 @@ const RestaurantDetail = ({ restaurant, currentUser, favourites, onToggleFavouri
                   </div>
                 ))}
               </div>
-              {review.comment && <div style={{ fontFamily: "Georgia, serif", fontSize: 14, color: "#5A4535", lineHeight: 1.6, fontStyle: "italic", borderTop: "1px solid #EDE5D8", paddingTop: 12 }}>"{review.comment}"</div>}
+              {review.comment && <div style={{ fontFamily: "Georgia, serif", fontSize: 14, color: "#5A4535", lineHeight: 1.6, fontStyle: "italic", borderTop: "1px solid #EDE5D8", paddingTop: 12, marginBottom: reviewPhotos.length ? 12 : 0 }}>"{review.comment}"</div>}
+              {reviewPhotos.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  {reviewPhotos.map((url, i) => (
+                    <img key={i} src={url} alt="" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, border: "1px solid #EDE5D8" }} />
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
+      {/* Confirm delete dialog */}
+      {confirmDelete && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(30,18,10,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: "#FAF7F2", borderRadius: 20, padding: "36px 32px", width: "100%", maxWidth: 380, textAlign: "center" }}>
+            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: "#3D2B1F", marginBottom: 10 }}>Elimina ristorante</div>
+            <div style={{ fontFamily: "Georgia, serif", fontSize: 14, color: "#8B7355", marginBottom: 24 }}>Sei sicuro di voler eliminare <strong>{restaurant.name}</strong>? Questa azione non può essere annullata.</div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: "12px", background: "transparent", border: "1.5px solid #DDD4C5", borderRadius: 10, cursor: "pointer", fontFamily: "Georgia, serif", fontSize: 14, color: "#8B7355" }}>Annulla</button>
+              <button onClick={() => { onDeleteRestaurant(restaurant.id); onBack(); }} style={{ flex: 1, padding: "12px", background: "#C0392B", border: "none", borderRadius: 10, cursor: "pointer", fontFamily: "Georgia, serif", fontSize: 14, color: "#fff", fontWeight: 600 }}>Elimina</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showReviewModal && (
         <ReviewModal restaurant={restaurant} existingReview={editingReview} onClose={() => { setShowReviewModal(false); setEditingReview(null); }} onSave={onSaveReview} currentUser={currentUser} />
@@ -438,7 +561,7 @@ const FavouritesPage = ({ restaurants, favourites, currentUser, onToggleFavourit
       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 36, fontWeight: 700, color: "#3D2B1F", marginBottom: 32 }}>Preferiti</div>
       {top3.length > 0 && (
         <div style={{ marginBottom: 40 }}>
-          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 12, marginBottom: 0 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 12 }}>
             {podiumOrder.map((r, i) => {
               if (!r) return <div key={i} style={{ width: "30%" }} />;
               const rAvg = avg(r.reviews || []);
@@ -488,7 +611,6 @@ export default function App() {
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Load session on mount
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -507,7 +629,6 @@ export default function App() {
     });
   }, []);
 
-  // Load restaurants + reviews
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -522,7 +643,6 @@ export default function App() {
     load();
   }, []);
 
-  // Load favourites when user logs in
   useEffect(() => {
     if (!currentUser) { setFavourites([]); return; }
     supabase.from("favourites").select("restaurant_id").eq("user_id", currentUser.id)
@@ -554,6 +674,11 @@ export default function App() {
     setRestaurants(prev => prev.map(r => r.id !== restaurantId ? r : { ...r, reviews: r.reviews.filter(rev => rev.id !== reviewId) }));
   };
 
+  const handleDeleteRestaurant = async (restaurantId) => {
+    await supabase.from("restaurants").delete().eq("id", restaurantId);
+    setRestaurants(prev => prev.filter(r => r.id !== restaurantId));
+  };
+
   const handleSelectRestaurant = (restaurant) => {
     setSelectedRestaurantId(restaurant.id);
     setPage("detail");
@@ -576,6 +701,7 @@ export default function App() {
         onToggleFavourite={handleToggleFavourite}
         onSaveReview={handleSaveReview}
         onDeleteReview={handleDeleteReview}
+        onDeleteRestaurant={handleDeleteRestaurant}
         onBack={() => setPage("home")}
       />
     );
@@ -679,7 +805,7 @@ export default function App() {
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLogin={setCurrentUser} />}
       {showAddModal && currentUser && (
-        <AddRestaurantModal onClose={() => setShowAddModal(false)} onAdd={(r) => setRestaurants(prev => [...prev, r])} currentUser={currentUser} />
+        <AddRestaurantModal onClose={() => setShowAddModal(false)} onAdd={(r) => setRestaurants(prev => [r, ...prev])} currentUser={currentUser} />
       )}
     </div>
   );
